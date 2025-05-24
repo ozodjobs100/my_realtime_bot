@@ -89,7 +89,7 @@ async def write(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = 0
     for uid in users:
         try:
-            await context.bot.send_message(chat_id=uid, text=f"{message_text}")
+            await context.bot.send_message(chat_id=uid, text=f"One good person:\n{message_text}")
             count += 1
         except:
             pass
@@ -112,7 +112,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = 0
     for uid in users:
         try:
-            await context.bot.send_message(chat_id=uid, text=f"{message_text}")
+            await context.bot.send_message(chat_id=uid, text=f"One good person:\n{message_text}")
             count += 1
         except:
             pass
@@ -173,7 +173,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = get_all_user_ids()
         await query.edit_message_text(text=f"👥 Foydalanuvchilar soni: {len(users)}")
     elif query.data == "send_message":
-        await query.edit_message_text(text="📝 Xabar yuborish funksiyasi hali ishlab chiqilmagan.")
+        await query.edit_message_text(text="📝 Xabar yuborishingiz mumkin: ")
 
 # Main function
 def main():
@@ -191,3 +191,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
