@@ -14,7 +14,8 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from datetime import datetime
+from telegram.ext import JobQueue
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -50,7 +51,16 @@ def add_user(user):
     conn.commit()
     conn.close()
 
-# Get all user IDs
+# Get all user IDs and info
+def get_all_users():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT user_id, username, first_name, last_name FROM users')
+    users = c.fetchall()
+    conn.close()
+    return users
+
+# Get all user IDs only
 def get_all_user_ids():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -64,7 +74,7 @@ def log_message(user, message):
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"[{datetime.now()}] {user.id} ({user.username}): {message}\n")
 
-# /start command
+# Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user)
@@ -75,7 +85,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Botga xush kelibsiz!", reply_markup=reply_markup)
 
-# /write command - admin faqat
+# Write command
 async def write(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
@@ -94,7 +104,7 @@ async def write(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     await update.message.reply_text(f"✅ {count} ta foydalanuvchiga yuborildi.")
 
-# /broadcast command - fayldan xabar yuborish
+# Broadcast command
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
@@ -117,7 +127,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     await update.message.reply_text(f"✅ Fayldan {count} ta foydalanuvchiga yuborildi.")
 
-# /stats command - foydalanuvchilar soni
+# Stats command
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
@@ -125,7 +135,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = get_all_user_ids()
     await update.message.reply_text(f"👥 Foydalanuvchilar soni: {len(users)}")
 
-# /set_timer command - rejalashtirilgan xabar
+# Set timer command
 async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
@@ -146,7 +156,7 @@ async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❗ Noto‘g‘ri format. Foydalanish: /set_timer <soniya> <xabar>")
 
-# Scheduled message sending
+# Send scheduled message
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     message_text = context.job.data
     users = get_all_user_ids()
@@ -156,15 +166,66 @@ async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-# Handle all user messages: log va admin ga forward qilish
+# Handle messages: add user, log, forward to admin
+# Va reply qilingan userga xabar jo'natishni qo'shamiz
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id != ADMIN_ID:
-        add_user(user)
-        log_message(user, update.message.text)
-        await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=user.id, message_id=update.message.message_id)
+    add_user(user)
+    log_message(user, update.message.text)
 
-# Inline tugmalar callback handler
+    # Agar admin reply qilsa va reply qilingan userga xabar jo'natish kerak bo'lsa:
+    if update.message.reply_to_message and user.id == ADMIN_ID:
+        replied_msg = update.message.reply_to_message
+        # reply qilinayotgan xabar kimdan kelganligini aniqlaymiz
+        original_sender_id = replied_msg.forward_from.id if replied_msg.forward_from else None
+        
+        # Agar forward qilingan xabar bo'lsa, forward_from orqali user_id olamiz
+        if original_sender_id:
+            try:
+                await context.bot.send_message(chat_id=original_sender_id, text=update.message.text)
+                await update.message.reply_text("✅ Xabar yuborildi.")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Xabar yuborishda xato: {e}")
+        else:
+            await update.message.reply_text("❗ Bu xabarga javob berish orqali foydalanuvchiga xabar yuborishingiz mumkin.")
+    else:
+        # Oddiy foydalanuvchi xabarlarini adminga yuboramiz
+        if user.id != ADMIN_ID:
+            try:
+                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=user.id, message_id=update.message.message_id)
+            except:
+                pass
+
+# /users buyrug'i - barcha userlarni ko'rsatadi (admin uchun)
+async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
+        return
+
+    users = get_all_users()
+    if not users:
+        await update.message.reply_text("Foydalanuvchilar topilmadi.")
+        return
+
+    message_text = "👥 Foydalanuvchilar ro'yxati:\n\n"
+    lines = []
+    for i, (user_id, username, first_name, last_name) in enumerate(users, start=1):
+        username_str = f"@{username}" if username else "(username yo'q)"
+        first_name_str = first_name if first_name else ""
+        last_name_str = last_name if last_name else ""
+        lines.append(f"{i}. ID: {user_id}\n   Username: {username_str}\n   Ismi: {first_name_str} {last_name_str}")
+
+    full_text = message_text + "\n\n".join(lines)
+
+    MAX_LEN = 4000
+    if len(full_text) > MAX_LEN:
+        chunks = [full_text[i:i+MAX_LEN] for i in range(0, len(full_text), MAX_LEN)]
+        for chunk in chunks:
+            await update.message.reply_text(chunk)
+    else:
+        await update.message.reply_text(full_text)
+
+# Handle button callbacks
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -172,35 +233,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = get_all_user_ids()
         await query.edit_message_text(text=f"👥 Foydalanuvchilar soni: {len(users)}")
     elif query.data == "send_message":
-        await query.edit_message_text(text="📝 Xabar yuborishingiz mumkin:")
+        await query.edit_message_text(text="📝 Xabar yuborishingiz mumkin: ")
 
-# /users command - faqat admin uchun foydalanuvchilar ro'yxatini ko'rsatadi
-async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
-        return
-
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT user_id, username, first_name, last_name FROM users")
-    rows = c.fetchall()
-    conn.close()
-
-    if not rows:
-        await update.message.reply_text("Foydalanuvchilar topilmadi.")
-        return
-
-    users_list = ""
-    for r in rows:
-        user_id, username, first_name, last_name = r
-        users_list += f"ID: {user_id}, Username: @{username if username else 'yo‘q'}, Ism: {first_name or 'yo‘q'}, Familiya: {last_name or 'yo‘q'}\n"
-
-    if len(users_list) > 4000:
-        users_list = users_list[:3990] + "\n...\n(Ro'yxat juda uzun)"
-
-    await update.message.reply_text(f"👥 Foydalanuvchilar ro'yxati:\n{users_list}")
-
-# Asosiy funksiya
+# Main function
 def main():
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
@@ -209,7 +244,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("set_timer", set_timer))
-    app.add_handler(CommandHandler("users", users))   # users buyruq handleri
+    app.add_handler(CommandHandler("users", users_list))  # <-- Yangi /users buyrug'i
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_handler))
     print("✅ Bot ishga tushdi. CTRL+C bilan to‘xtatiladi.")
