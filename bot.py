@@ -1,22 +1,15 @@
 import os
 import sqlite3
 from dotenv import load_dotenv
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
 )
 from flask import Flask, request, abort
 from threading import Thread
 from datetime import datetime
+import asyncio
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -71,7 +64,6 @@ def log_message(user, message):
         f.write(f"[{datetime.now()}] {user.id} ({user.username}): {message}\n")
 
 # --- Bot command handlers ---
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user)
@@ -87,7 +79,7 @@ async def write(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
         return
     if not context.args:
-        await update.message.reply_text("❗ Xabar matnini yozing: /write Salom hammaga!")
+        await update.message.reply_text("❗️ Xabar matnini yozing: /write Salom hammaga!")
         return
     message_text = " ".join(context.args)
     users = get_all_user_ids()
@@ -105,12 +97,12 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
         return
     if not os.path.exists(BROADCAST_FILE):
-        await update.message.reply_text("❗ message.txt topilmadi.")
+        await update.message.reply_text("❗️ message.txt topilmadi.")
         return
     with open(BROADCAST_FILE, "r", encoding="utf-8") as f:
         message_text = f.read().strip()
     if not message_text:
-        await update.message.reply_text("❗ message.txt bo‘sh.")
+        await update.message.reply_text("❗️ message.txt bo‘sh.")
         return
     users = get_all_user_ids()
     count = 0
@@ -134,7 +126,7 @@ async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
         return
     if len(context.args) < 2:
-        await update.message.reply_text("❗ Foydalanish: /set_timer <soniya> <xabar>")
+        await update.message.reply_text("❗️ Foydalanish: /set_timer <soniya> <xabar>")
         return
     try:
         delay = int(context.args[0])
@@ -147,7 +139,7 @@ async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"⏰ Xabar {delay} soniyadan so‘ng yuboriladi.")
     except ValueError:
-        await update.message.reply_text("❗ Noto‘g‘ri format. Foydalanish: /set_timer <soniya> <xabar>")
+        await update.message.reply_text("❗️ Noto‘g‘ri format. Foydalanish: /set_timer <soniya> <xabar>")
 
 async def send_scheduled_message(context: ContextTypes.DEFAULT_TYPE):
     message_text = context.job.data
@@ -163,7 +155,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_user(user)
     log_message(user, update.message.text)
 
-    # Admin reply qilsa va foydalanuvchiga javob berish kerak bo'lsa
     if update.message.reply_to_message and user.id == ADMIN_ID:
         replied_msg = update.message.reply_to_message
         original_sender_id = replied_msg.forward_from.id if replied_msg.forward_from else None
@@ -174,9 +165,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await update.message.reply_text(f"❌ Xabar yuborishda xato: {e}")
         else:
-            await update.message.reply_text("❗ Bu xabarga javob berish orqali foydalanuvchiga xabar yuborishingiz mumkin.")
+            await update.message.reply_text("❗️ Bu xabarga javob berish orqali foydalanuvchiga xabar yuborishingiz mumkin.")
     else:
-        # Oddiy foydalanuvchi xabarlarini adminga yuboramiz
         if user.id != ADMIN_ID:
             try:
                 await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=user.id, message_id=update.message.message_id)
@@ -187,7 +177,6 @@ async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Bu buyruq faqat admin uchun.")
         return
-
     users = get_all_users()
     if not users:
         await update.message.reply_text("Foydalanuvchilar topilmadi.")
@@ -202,7 +191,6 @@ async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{i}. ID: {user_id}\n   Username: {username_str}\n   Ismi: {first_name_str} {last_name_str}")
 
     full_text = message_text + "\n\n".join(lines)
-
     MAX_LEN = 4000
     if len(full_text) > MAX_LEN:
         chunks = [full_text[i:i+MAX_LEN] for i in range(0, len(full_text), MAX_LEN)]
@@ -221,9 +209,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text="📝 Xabar yuborishingiz mumkin: ")
 
 # --- Flask webhook server ---
-
 app = Flask(__name__)
-application = None  # global telegram Application
+application = None  # Telegram Application global
 
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
@@ -238,8 +225,7 @@ def run_flask():
     port = int(os.environ.get("PORT", "5000"))
     app.run(host="0.0.0.0", port=port)
 
-import asyncio
-
+# --- Main bot runner ---
 async def main():
     global application
     init_db()
@@ -254,16 +240,18 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(button_handler))
 
+    # Flask serverni alohida oqimda ishga tushiramiz
     flask_thread = Thread(target=run_flask)
     flask_thread.start()
 
-    url = f"https://your-render-url.onrender.com/{TOKEN}"  # <-- Bu yerga Render yoki hosting URL yozing
-    await application.bot.set_webhook(url)
-
-    print("✅ Bot webhook bilan ishga tushdi.")
+    # Webhook URL manzilini o'rnatamiz
+    url = f"https://python-flask-bot.onrender.com/{TOKEN}"  # <-- O'zingizning domeningizni yozing
+    await application.initialize()
+    await application.bot.set_webhook(url=url)
     await application.start()
-    await application.updater.start_polling()
-    await application.idle()
+    print("✅ Bot webhook bilan ishga tushdi.")
+
+    # Polling emas, shuning uchun idle kerak emas
 
 if __name__ == "__main__":
     asyncio.run(main())
